@@ -1,0 +1,4 @@
+/*
+  Place your favicon as 'favicon.ico' in the public/ directory.
+  To update the favicon, replace the file and it will update automatically.
+*/

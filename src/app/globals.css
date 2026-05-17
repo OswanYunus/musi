@@ -1,3 +1,12 @@
+/* Humane Typeface Regular */
+@font-face {
+  font-family: 'Humane';
+  src: url('/fonts/HUMANE Typeface/HUMANE Typeface/Web-PS/Humane-Regular.woff2') format('woff2'),
+       url('/fonts/HUMANE Typeface/HUMANE Typeface/Web-PS/Humane-Regular.otf') format('opentype');
+  font-style: normal;
+  font-weight: normal;
+  text-rendering: optimizeLegibility;
+}
 @import "tailwindcss";
 
 :root {
@@ -19,8 +28,19 @@
   }
 }
 
+/*
+  To change the main font, edit the @font-face below and update the font-family in body and page.tsx.
+  For Helvetica Neue LT Std 97 Black Condensed, you must provide the font file in /public/fonts if you want it to work everywhere.
+*/
+@font-face {
+  font-family: 'Helvetica Neue LT Std 97 Black Condensed';
+  src: local('Helvetica Neue LT Std 97 Black Condensed'), local('HelveticaNeueLTStd97BlackCondensed');
+  font-weight: 900;
+  font-style: normal;
+}
+
 body {
-  background: var(--background);
+  background: #c4af9d;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Helvetica Neue LT Std 97 Black Condensed', Helvetica, Arial, sans-serif;
 }
