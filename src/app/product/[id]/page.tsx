@@ -486,7 +486,7 @@ export default function ProductPage() {
           <Link href="/" className="fixed top-2 left-2 z-30" aria-label="Home" style={{ pointerEvents:"auto" }}>
             <Image src="/favicon.ico" alt="Logo" width={160} height={100} priority />
           </Link>
-          <NavBar theme={theme} onSelectTheme={setTheme} />
+          <NavBar theme={theme} onSelectTheme={(nextTheme) => setTheme(nextTheme)} />
         </>,
         document.body,
       )}

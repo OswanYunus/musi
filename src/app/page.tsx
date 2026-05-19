@@ -669,7 +669,7 @@ export default function Home() {
   const [curtainStarted, setCurtainStarted] = useState(false);
   const cursorRef = useRef<HTMLDivElement>(null);
   const [cursorOverProduct, setCursorOverProduct] = useState(false);
-  const [theme, setTheme] = useState(THEMES.green);
+  const [theme, setTheme] = useState<Theme>(THEMES.green);
   const isClient = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -976,7 +976,7 @@ export default function Home() {
               <Link href="/" className="fixed top-2 left-2 z-30" aria-label="Home" style={{ pointerEvents: "auto" }}>
                 <Image src="/favicon.ico" alt="Favicon" width={160} height={100} priority />
               </Link>
-              <NavBar theme={theme} onSelectTheme={setTheme} />
+              <NavBar theme={theme} onSelectTheme={(nextTheme) => setTheme(nextTheme)} />
             </>,
             document.body,
           )
