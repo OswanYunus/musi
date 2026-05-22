@@ -1,5 +1,19 @@
 "use client";
 
+import Image from "next/image";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+import { isMobile } from "@/utils/device";
+import { useVirtualScroll } from "@/hooks/useMomentumScroll";
+import { TransitionLink } from "@/components/RouteTransition";
+import WorkHoursTimer from "@/components/WorkHoursTimer";
+
+declare global {
+  interface Window {
+    __MUSI_HOME_LOADED__?: boolean;
+  }
+}
+
 const THEMES = {
   green: {
     bg: "#c4af9d",
@@ -35,13 +49,6 @@ const THEMES = {
     name: "white",
   },
 } as const;
-
-import Image from "next/image";
-import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
-import { isMobile } from "@/utils/device";
-import { useVirtualScroll } from "@/hooks/useMomentumScroll";
 
 const ROW1_IMAGE_HEIGHT = "clamp(380px, 52vh, 620px)";
 const ROW2_BASE_HEIGHT  = "clamp(380px, 52vh, 620px)";
@@ -157,7 +164,7 @@ function ProductCard({
 
   return (
     <div className="product-card" style={{ flex: `${columnSpan} 1 0` }}>
-      <Link
+      <TransitionLink
         href={`/product/${id}`}
         className="product-link"
       >
@@ -201,7 +208,7 @@ function ProductCard({
             )}
           </div>
         </div>
-      </Link>
+      </TransitionLink>
       <div
         className="product-caption"
         style={
@@ -418,14 +425,18 @@ function NavBar({
     <div className="fixed top-6 right-8 flex flex-col items-end gap-2 z-30" style={{ pointerEvents: "auto" }}>
       <ThemeSpheres theme={theme} onSelectTheme={onSelectTheme} />
       <div className="flex gap-8 mt-4">
-        <Link href="/" className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
-          Shop
+        <TransitionLink href="/" className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
+          Home
           <span className="underline-anim active" />
-        </Link>
-        <Link href="/bag" className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
+        </TransitionLink>
+        <TransitionLink href="/shop" className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
+          Shop
+          <span className="underline-anim" />
+        </TransitionLink>
+        <TransitionLink href="/bag" className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
           Bag
           <span className="underline-anim" />
-        </Link>
+        </TransitionLink>
       </div>
     </div>
   );
@@ -477,10 +488,11 @@ function LoadingScreen({
   useEffect(() => {
     if (phase !== "stacking") return;
     if (visibleCount >= LOADER_IMAGES.length) {
-      // ensure all non-static letters are revealed
-      setRevealedLetters([true,true,true,true,true,true]);
-      setPhase("holding");
-      return;
+      const t = setTimeout(() => {
+        setRevealedLetters([true, true, true, true, true, true]);
+        setPhase("holding");
+      }, 0);
+      return () => clearTimeout(t);
     }
     const t = setTimeout(() => {
       const next = visibleCount + 1;
@@ -665,8 +677,14 @@ function LoadingScreen({
 // ─── END LOADING SCREEN ───────────────────────────────────────────────────────
 
 export default function Home() {
-  const [loading, setLoading] = useState(true);
-  const [curtainStarted, setCurtainStarted] = useState(false);
+  const [loading, setLoading] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return !window.__MUSI_HOME_LOADED__;
+  });
+  const [curtainStarted, setCurtainStarted] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.__MUSI_HOME_LOADED__ ?? false;
+  });
   const cursorRef = useRef<HTMLDivElement>(null);
   const [cursorOverProduct, setCursorOverProduct] = useState(false);
   const [theme, setTheme] = useState<Theme>(THEMES.green);
@@ -675,6 +693,11 @@ export default function Home() {
     () => true,
     () => false,
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.__MUSI_HOME_LOADED__ = true;
+  }, []);
 
   // ✨ Virtual scroll — entire page glides with inertia, scrollbar stays native
   useVirtualScroll(0.09);
@@ -707,22 +730,26 @@ export default function Home() {
       <div
       id="vs-wrapper"
       className="relative min-h-screen w-full flex flex-col"
-      style={{ fontFamily: '"Helvetica Neue LT Std 97 Black Condensed", Helvetica, Arial, sans-serif', background: theme.bg, color: theme.text }}
+      style={{ fontFamily: '"Helvetica Neue LT Std 97 Black Condensed", Helvetica, Arial, sans-serif', background: theme.bg, color: theme.text, "--musi-accent": theme.accent } as { [key: string]: string }}
     >
       {/* Main content */}
       <main className="flex flex-col w-full pt-24 px-3 sm:px-4">
         {/* Large MUSI'S text with registered mark */}
         <div className="relative w-full flex flex-col pb-16">
-          <h1
-            className={`${theme.textClass} text-[13vw] font-black uppercase tracking-tight text-center select-none leading-none`}
-            style={{
-              fontFamily: '"Helvetica Neue LT Std 97 Black Condensed", Helvetica, Arial, sans-serif',
-              letterSpacing: '-0.04em',
-              lineHeight: 1.05,
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-          >
+          <div className="flex flex-col items-center gap-8 sm:items-end sm:justify-center sm:flex-row">
+            <div className="flex flex-col items-end gap-2 text-right w-[13rem] sm:w-[15rem]">
+              <WorkHoursTimer color={theme.text} />
+            </div>
+            <h1
+              className={`${theme.textClass} text-[13vw] font-black uppercase tracking-tight text-center select-none leading-none`}
+              style={{
+                fontFamily: '"Helvetica Neue LT Std 97 Black Condensed", Helvetica, Arial, sans-serif',
+                letterSpacing: '-0.04em',
+                lineHeight: 1.05,
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
             {/* Per-letter slide — synced with curtain rising, different order from loader */}
             {["M","U","S","I","\u2019","S"].map((ch, i) => {
               const order = LANDING_LETTER_ORDER[i];
@@ -776,7 +803,9 @@ export default function Home() {
               ®
             </span>
           </h1>
-          
+            <div className="hidden sm:block w-[15rem]" aria-hidden="true" />
+          </div>
+
           {/* Thick underline and bottom info */}
           <div
             className={`w-full h-4 ${theme.barClass} rounded-full mt-4 relative`}
@@ -800,38 +829,35 @@ export default function Home() {
               </button>
             </div>
           </div>
-              {/* Animated underline CSS */}
-              <style jsx global>{`
-                .underline-anim-btn {
-                  background: none;
-                  border: none;
-                  cursor: pointer;
-                  position: relative;
-                  padding-bottom: 0.2em;
-                }
-                .underline-anim {
-                  display: block;
-                  position: absolute;
-                  left: 0;
-                  bottom: -2px;
-                  height: 4px;
-                  width: 100%;
-                  background: ${theme.accent};
-                  border-radius: 2px;
-                  transform: scaleX(0);
-                  transform-origin: left;
-                  transition: transform 0.35s cubic-bezier(0.77,0,0.175,1);
-                  z-index: 1;
-                }
-                .underline-anim-btn:hover .underline-anim,
-                .underline-anim-btn:focus .underline-anim {
-                  transform: scaleX(1);
-                }
-                .underline-anim-btn .underline-anim.active {
-                  transform: scaleX(1);
-                }
-              `}</style>
         </div>
+        <style jsx global>{`
+          .underline-anim-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            position: relative;
+            padding-bottom: 0.2em;
+          }
+          .underline-anim {
+            display: block;
+            position: absolute;
+            left: 0;
+            bottom: -2px;
+            height: 4px;
+            width: 100%;
+            background: var(--musi-accent);
+            border-radius: 2px;
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.35s cubic-bezier(0.77,0,0.175,1);
+            z-index: 1;
+          }
+          .underline-anim-btn:hover .underline-anim,
+          .underline-anim-btn:focus .underline-anim,
+          .underline-anim-btn .underline-anim.active {
+            transform: scaleX(1);
+          }
+        `}</style>
 
       </main>
 
@@ -973,9 +999,9 @@ export default function Home() {
       {isClient
         ? createPortal(
             <>
-              <Link href="/" className="fixed top-2 left-2 z-30" aria-label="Home" style={{ pointerEvents: "auto" }}>
+              <TransitionLink href="/" className="fixed top-2 left-2 z-30" aria-label="Home" style={{ pointerEvents: "auto" }}>
                 <Image src="/favicon.ico" alt="Favicon" width={160} height={100} priority />
-              </Link>
+              </TransitionLink>
               <NavBar theme={theme} onSelectTheme={(nextTheme) => setTheme(nextTheme)} />
             </>,
             document.body,

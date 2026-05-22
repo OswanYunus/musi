@@ -44,3 +44,37 @@ body {
   color: var(--foreground);
   font-family: 'Helvetica Neue LT Std 97 Black Condensed', Helvetica, Arial, sans-serif;
 }
+
+.underline-anim-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  padding-bottom: 0.2em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.underline-anim {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: currentColor;
+  border-radius: 999px;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.35s cubic-bezier(0.77, 0, 0.175, 1), opacity 0.35s ease;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.underline-anim-btn:hover .underline-anim,
+.underline-anim-btn:focus .underline-anim,
+.underline-anim-btn .underline-anim.active {
+  transform: scaleX(1);
+  opacity: 1;
+}

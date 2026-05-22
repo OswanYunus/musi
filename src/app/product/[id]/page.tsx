@@ -30,7 +30,7 @@
 //   as in the landing page.
 
 import Image from "next/image";
-import Link from "next/link";
+import { TransitionLink } from "@/components/RouteTransition";
 import {
   useEffect,
   useRef,
@@ -39,7 +39,7 @@ import {
   useCallback,
 } from "react";
 import { createPortal } from "react-dom";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useVirtualScroll } from "@/hooks/useMomentumScroll";
 import { isMobile } from "@/utils/device";
 
@@ -153,12 +153,12 @@ function NavBar({ theme, onSelectTheme }: { theme:Theme; onSelectTheme:(t:Theme)
     <div className="fixed top-6 right-8 flex flex-col items-end gap-2 z-30" style={{ pointerEvents:"auto" }}>
       <ThemeSpheres theme={theme} onSelectTheme={onSelectTheme} />
       <div className="flex gap-8 mt-4">
-        {[{href:"/",label:"Shop"},{href:"/bag",label:"Bag"}].map(({href,label}) => (
-          <Link key={label} href={href}
+        {[{href:"/shop",label:"Shop"},{href:"/bag",label:"Bag"}].map(({href,label}) => (
+          <TransitionLink key={label} href={href}
             className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
             {label}
             <span className={`underline-anim${label==="Shop"?" active":""}`} />
-          </Link>
+          </TransitionLink>
         ))}
       </div>
     </div>
@@ -222,7 +222,6 @@ function Footer({ theme }: { theme:Theme }) {
 // ─── PAGE ─────────────────────────────────────────────────────────────────────
 export default function ProductPage() {
   const params  = useParams<{ id:string }>();
-  const router  = useRouter();
   const product = ALL_PRODUCTS.find(p => p.id === params.id) ?? ALL_PRODUCTS[0];
 
   const [loading,     setLoading]     = useState(true);
@@ -354,7 +353,7 @@ export default function ProductPage() {
             alignSelf:"flex-start",
           }}>
 
-            {/* Return to Shop */}
+            {/* Back to home */}
             <div style={{
               display:"flex", alignItems:"center", gap:8,
               marginBottom:"clamp(24px,4vh,52px)",
@@ -362,7 +361,7 @@ export default function ProductPage() {
               transform: revealed ? "translateX(0)" : "translateX(-14px)",
               transition: revealed ? "opacity 480ms ease 120ms, transform 480ms cubic-bezier(0.16,1,0.3,1) 120ms" : "none",
             }}>
-              <button onClick={() => router.push("/")} style={{
+              <TransitionLink href="/" style={{
                 display:"flex", alignItems:"center", gap:8,
                 background:"none", border:"none", cursor:"pointer",
                 color:theme.text, padding:0, fontFamily:FF,
@@ -372,8 +371,8 @@ export default function ProductPage() {
                 <svg width="20" height="16" viewBox="0 0 22 18" fill="none">
                   <path d="M21 9H1M1 9L9 1M1 9L9 17" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                Return to Shop
-              </button>
+                Home
+              </TransitionLink>
             </div>
 
             {/* Product name */}
@@ -483,9 +482,9 @@ export default function ProductPage() {
       {/* ── Portals ── */}
       {isClient && createPortal(
         <>
-          <Link href="/" className="fixed top-2 left-2 z-30" aria-label="Home" style={{ pointerEvents:"auto" }}>
+          <TransitionLink href="/" className="fixed top-2 left-2 z-30" aria-label="Home" style={{ pointerEvents:"auto" }}>
             <Image src="/favicon.ico" alt="Logo" width={160} height={100} priority />
-          </Link>
+          </TransitionLink>
           <NavBar theme={theme} onSelectTheme={(nextTheme) => setTheme(nextTheme)} />
         </>,
         document.body,
