@@ -49,14 +49,31 @@ function getCountDownState(now: Date) {
 }
 
 export default function WorkHoursTimer({ color }: { color?: string }) {
+  const [isMounted, setIsMounted] = useState(false);
   const [now, setNow] = useState(() => getNairobiDate());
 
   useEffect(() => {
+    setIsMounted(true);
+    setNow(getNairobiDate());
     const timer = window.setInterval(() => setNow(getNairobiDate()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
   const { status, countdown } = useMemo(() => getCountDownState(now), [now]);
+
+  // Don't render dynamic content until mounted to prevent hydration mismatch
+  if (!isMounted) {
+    return (
+      <div className="flex flex-col items-center sm:items-end gap-1 text-right" style={{ color }}>
+        <span className="text-xs uppercase tracking-[0.35em] font-sans" style={{ opacity: 0.9 }}>
+          Loading...
+        </span>
+        <span className="font-black text-[4rem] leading-none tracking-[-0.03em] sm:text-[5.5rem]">
+          --:--:--
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center sm:items-end gap-1 text-right" style={{ color }}>

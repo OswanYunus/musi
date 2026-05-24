@@ -63,18 +63,25 @@ body {
   right: 0;
   bottom: 0;
   height: 3px;
-  background: currentColor;
+  /* Always green — independent of theme text color */
+  background: #16a34a;
   border-radius: 999px;
+  /* Start collapsed at the left edge, slides right on hover */
   transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.35s cubic-bezier(0.77, 0, 0.175, 1), opacity 0.35s ease;
-  opacity: 0;
+  transform-origin: left center;
+  transition: transform 0.38s cubic-bezier(0.77, 0, 0.175, 1);
   pointer-events: none;
 }
 
+/* Hover / focus — line slides in from left */
 .underline-anim-btn:hover .underline-anim,
-.underline-anim-btn:focus .underline-anim,
+.underline-anim-btn:focus-visible .underline-anim {
+  transform: scaleX(1);
+}
+
+/* .active — line is permanently visible (used for current nav page) */
 .underline-anim-btn .underline-anim.active {
   transform: scaleX(1);
-  opacity: 1;
+  /* No transition so it appears instantly on page load */
+  transition: none;
 }

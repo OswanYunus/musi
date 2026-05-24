@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import { isMobile } from "@/utils/device";
 import { useVirtualScroll } from "@/hooks/useMomentumScroll";
@@ -421,22 +422,30 @@ function NavBar({
   theme: Theme;
   onSelectTheme: (theme: Theme) => void;
 }) {
+  const pathname = usePathname();
+  const navLinks = [
+    { href: "/",     label: "Home" },
+    { href: "/shop", label: "Shop" },
+    { href: "/bag",  label: "Bag"  },
+  ];
   return (
     <div className="fixed top-6 right-8 flex flex-col items-end gap-2 z-30" style={{ pointerEvents: "auto" }}>
       <ThemeSpheres theme={theme} onSelectTheme={onSelectTheme} />
       <div className="flex gap-8 mt-4">
-        <TransitionLink href="/" className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
-          Home
-          <span className="underline-anim active" />
-        </TransitionLink>
-        <TransitionLink href="/shop" className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
-          Shop
-          <span className="underline-anim" />
-        </TransitionLink>
-        <TransitionLink href="/bag" className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}>
-          Bag
-          <span className="underline-anim" />
-        </TransitionLink>
+        {navLinks.map(({ href, label }) => {
+          const isActive = pathname === href;
+          return (
+            <TransitionLink
+              key={href}
+              href={href}
+              className={`underline-anim-btn text-3xl font-serif relative px-2 focus:outline-none group ${theme.nav}`}
+            >
+              {label}
+              {/* .active keeps the line permanently visible for the current page */}
+              <span className={`underline-anim${isActive ? " active" : ""}`} />
+            </TransitionLink>
+          );
+        })}
       </div>
     </div>
   );
@@ -845,10 +854,11 @@ export default function Home() {
             bottom: -2px;
             height: 4px;
             width: 100%;
-            background: var(--musi-accent);
+            /* Always green, slides from left on hover */
+            background: #16a34a;
             border-radius: 2px;
             transform: scaleX(0);
-            transform-origin: left;
+            transform-origin: left center;
             transition: transform 0.35s cubic-bezier(0.77,0,0.175,1);
             z-index: 1;
           }
@@ -1000,7 +1010,15 @@ export default function Home() {
         ? createPortal(
             <>
               <TransitionLink href="/" className="fixed top-2 left-2 z-30" aria-label="Home" style={{ pointerEvents: "auto" }}>
-                <Image src="/favicon.ico" alt="Favicon" width={160} height={100} priority />
+                <Image
+                  src="/favicon.ico"
+                  alt="Favicon"
+                  width={160}
+                  height={100}
+                  priority
+                  style={{ width: "auto", height: "auto" }}
+                  sizes="160px"
+                />
               </TransitionLink>
               <NavBar theme={theme} onSelectTheme={(nextTheme) => setTheme(nextTheme)} />
             </>,
