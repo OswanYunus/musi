@@ -225,10 +225,22 @@ export async function POST(req: NextRequest) {
     tls: { rejectUnauthorized: false },
   });
 
+  // Verify SMTP connection — logs a clear error if credentials/config are wrong
+  try {
+    await transporter.verify();
+    console.log("✅ SMTP connection verified successfully");
+  } catch (verifyErr) {
+    console.error("❌ SMTP connection verification failed:", verifyErr);
+    return NextResponse.json(
+      { ok: false, error: "SMTP connection failed — check EMAIL_HOST, EMAIL_PORT, EMAIL_SECURE, EMAIL_USER, EMAIL_PASS" },
+      { status: 500 }
+    );
+  }
+
   const subject = `New Booking — ${name} — Ksh ${totalPrice.toLocaleString()}`;
 
   try {
-    await Promise.all([
+    const [ownerResult, customerResult] = await Promise.all([
       transporter.sendMail({
         from:    `"Musi's Collection" <${user}>`,
         to:      recipient,
@@ -243,10 +255,15 @@ export async function POST(req: NextRequest) {
         html:    customerHtml(payload),
       }),
     ]);
+    console.log("✅ Owner email sent:", ownerResult.messageId);
+    console.log("✅ Customer email sent:", customerResult.messageId);
   } catch (err) {
     // Full error printed to your Next.js terminal — check there if emails still don't arrive
     console.error("❌ Email sending failed:", err);
-    return NextResponse.json({ ok: true, warning: "Email sending failed" });
+    return NextResponse.json(
+      { ok: false, error: "Email sending failed" },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ ok: true });
