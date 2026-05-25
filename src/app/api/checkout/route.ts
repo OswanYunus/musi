@@ -3,22 +3,19 @@
 // Sends a booking confirmation email to the store owner AND a receipt to the customer.
 //
 // Setup:
-//   1. npm install nodemailer
-//   2. Add these to your .env.local:
-//        EMAIL_HOST=smtp.gmail.com          (or your SMTP provider)
-//        EMAIL_PORT=465
-//        EMAIL_SECURE=true
-//        EMAIL_USER=yourstore@gmail.com
-//        EMAIL_PASS=your-app-password       (Gmail: Settings → Security → App Passwords)
-//        EMAIL_TO=yourstore@gmail.com       (owner inbox — where booking notifications land)
+//   1. npm install resend
+//   2. Sign up at https://resend.com (free — 100 emails/day)
+//   3. Get your API key from the Resend dashboard
+//   4. Add to .env.local:
+//        RESEND_API_KEY=re_xxxxxxxxxxxx
+//        EMAIL_TO=yourstore@gmail.com   (owner inbox — where booking notifications land)
 //
-//   Gmail tip: enable 2FA, then generate an App Password specifically for this app.
-//   Do NOT use your real password — App Passwords are revocable and scoped.
+//   Note: On Resend's free tier (no verified domain), emails are sent from
+//   onboarding@resend.dev and can only be delivered to the email you signed up with.
+//   Once you add and verify a custom domain in Resend, you can send to anyone.
 
 import { NextRequest, NextResponse } from "next/server";
-import nodemailer from "nodemailer";
-
-declare module "nodemailer";
+import { Resend } from "resend";
 
 interface OrderItem {
   id: string;
@@ -200,70 +197,75 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  const host = process.env.EMAIL_HOST ?? "smtp.gmail.com";
-  const port = Number(process.env.EMAIL_PORT ?? 587);
-  const secure = process.env.EMAIL_SECURE === "true"; // false for port 587 (STARTTLS), true for 465
-  const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_PASS;
-  const recipient = process.env.EMAIL_TO ?? process.env.EMAIL_USER;
-  const smtpConfigured = Boolean(user && pass);
+  const apiKey = process.env.RESEND_API_KEY;
+  const ownerInbox = process.env.EMAIL_TO;
 
-  if (!smtpConfigured) {
-    // This fires when .env.local is missing or incorrectly named — check your file is called
-    // exactly ".env.local" (dot prefix, not underscore) in your project root.
-    console.error("❌ Email disabled: EMAIL_USER or EMAIL_PASS missing from environment.");
-    console.error("   Make sure your file is named  .env.local  (not _env.local) in the project root.");
-    return NextResponse.json({ ok: true, warning: "Email service not configured" });
-  }
-
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure, // false = STARTTLS on port 587 (recommended); true = TLS on port 465
-    auth: { user, pass },
-    // Helps on localhost where TLS certificates may not be trusted:
-    tls: { rejectUnauthorized: false },
-  });
-
-  // Verify SMTP connection — logs a clear error if credentials/config are wrong
-  try {
-    await transporter.verify();
-    console.log("✅ SMTP connection verified successfully");
-  } catch (verifyErr) {
-    console.error("❌ SMTP connection verification failed:", verifyErr);
+  if (!apiKey) {
+    console.error("❌ Email disabled: RESEND_API_KEY missing from environment.");
     return NextResponse.json(
-      { ok: false, error: "SMTP connection failed — check EMAIL_HOST, EMAIL_PORT, EMAIL_SECURE, EMAIL_USER, EMAIL_PASS" },
+      { ok: false, error: "Email service not configured" },
       { status: 500 }
     );
   }
 
+  if (!ownerInbox) {
+    console.error("❌ Email disabled: EMAIL_TO missing from environment.");
+    return NextResponse.json(
+      { ok: false, error: "Owner email not configured" },
+      { status: 500 }
+    );
+  }
+
+  const resend = new Resend(apiKey);
+
+  // Use Resend's default sender for free tier; replace with your domain once verified
+  const fromAddress = process.env.EMAIL_FROM ?? "Musi's Collection <onboarding@resend.dev>";
   const subject = `New Booking — ${name} — Ksh ${totalPrice.toLocaleString()}`;
 
+  // ── 1. Owner notification (priority) ────────────────────────────────────────
   try {
-    const [ownerResult, customerResult] = await Promise.all([
-      transporter.sendMail({
-        from:    `"Musi's Collection" <${user}>`,
-        to:      recipient,
-        replyTo: email,
-        subject,
-        html:    ownerHtml(payload),
-      }),
-      transporter.sendMail({
-        from:    `"Musi's Collection" <${user}>`,
-        to:      email,
-        subject: `Your booking is confirmed — Musi's Collection`,
-        html:    customerHtml(payload),
-      }),
-    ]);
-    console.log("✅ Owner email sent:", ownerResult.messageId);
-    console.log("✅ Customer email sent:", customerResult.messageId);
+    const ownerResult = await resend.emails.send({
+      from:    fromAddress,
+      to:      [ownerInbox],
+      replyTo: email,
+      subject,
+      html:    ownerHtml(payload),
+    });
+
+    if (ownerResult.error) {
+      console.error("❌ Owner email failed:", ownerResult.error);
+      return NextResponse.json(
+        { ok: false, error: `Owner email failed: ${ownerResult.error.message}` },
+        { status: 500 }
+      );
+    }
+
+    console.log("✅ Owner email sent:", ownerResult.data?.id);
   } catch (err) {
-    // Full error printed to your Next.js terminal — check there if emails still don't arrive
-    console.error("❌ Email sending failed:", err);
+    console.error("❌ Owner email exception:", err);
     return NextResponse.json(
-      { ok: false, error: "Email sending failed" },
+      { ok: false, error: "Failed to send owner notification" },
       { status: 500 }
     );
+  }
+
+  // ── 2. Customer receipt (best-effort — may fail on free tier without domain) ─
+  try {
+    const custResult = await resend.emails.send({
+      from:    fromAddress,
+      to:      [email],
+      subject: `Your booking is confirmed — Musi's Collection`,
+      html:    customerHtml(payload),
+    });
+
+    if (custResult.error) {
+      // Non-fatal: customer email is nice-to-have; owner already received theirs
+      console.warn("⚠️  Customer email failed (non-fatal):", custResult.error.message);
+    } else {
+      console.log("✅ Customer email sent:", custResult.data?.id);
+    }
+  } catch (err) {
+    console.warn("⚠️  Customer email exception (non-fatal):", err);
   }
 
   return NextResponse.json({ ok: true });
