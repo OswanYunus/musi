@@ -33,11 +33,15 @@ function RouteTransitionScreen({
   const navigatedRef = useRef(false);
   const onNavigateRef = useRef(onNavigate);
   const onExitDoneRef = useRef(onExitDone);
-  onNavigateRef.current = onNavigate;
-  onExitDoneRef.current = onExitDone;
+
+  useEffect(() => {
+    onNavigateRef.current = onNavigate;
+    onExitDoneRef.current = onExitDone;
+  }, [onNavigate, onExitDone]);
 
   // Ensure we're mounted before rendering portal to prevent hydration mismatch
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsMounted(true);
   }, []);
 
@@ -167,7 +171,7 @@ export function TransitionLink({
 
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
-      props.onClick?.(event as any);
+      props.onClick?.(event);
       if (event.defaultPrevented) return;
       if (
         event.metaKey ||

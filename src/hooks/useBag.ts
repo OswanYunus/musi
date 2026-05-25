@@ -19,15 +19,15 @@ function readStorage(): BagState {
 		const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
 		if (!raw) return { items: [] };
 		return JSON.parse(raw) as BagState;
-	} catch (e) {
-		return { items: [] };
-	}
+} catch {
+    return { items: [] };
+  }
 }
 
 function writeStorage(state: BagState) {
-	try {
-		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-	} catch (e) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
 		// ignore
 	}
 }

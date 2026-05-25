@@ -16,6 +16,8 @@ const THEMES = {
 type Theme = (typeof THEMES)[keyof typeof THEMES];
 const FF = '"Helvetica Neue LT Std 97 Black Condensed", Helvetica, Arial, sans-serif';
 
+const createOrderRef = () => `Musi-${Date.now().toString().slice(-6)}`;
+
 /* ─── THEME SPHERES ─────────────────────────────────────────────────────────── */
 function ThemeSpheres({ theme, onSelectTheme }: { theme: Theme; onSelectTheme: (t: Theme) => void }) {
   const CFG = {
@@ -159,8 +161,9 @@ function BagRow({ item, theme, index, visible, onRemove, onQtyChange }: {
         flexShrink: 0, borderRadius: "1rem", background: "#f5e8d4",
         display: "flex", alignItems: "center", justifyContent: "center",
         overflow: "hidden", boxShadow: "0 4px 16px rgba(80,45,15,0.12)",
+        position: "relative",
       }}>
-        <img src={item.src} alt={item.name} style={{ width: "80%", height: "80%", objectFit: "contain", display: "block" }} />
+        <Image src={item.src} alt={item.name} fill style={{ objectFit: "contain" }} sizes="96px" />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{
@@ -323,7 +326,11 @@ function Field({ label, type = "text", value, onChange, placeholder, theme, erro
 }
 
 /* ─── CHECKOUT MODAL ────────────────────────────────────────────────────────── */
-type CheckoutStep = "details" | "payment" | "sent" | "error";
+// ── PASTE THIS TO REPLACE YOUR CheckoutModal COMPONENT in page.tsx ──────────
+// Lines to replace: from `/* ─── CHECKOUT MODAL */` down to the closing `}` of CheckoutModal
+
+/* ─── CHECKOUT MODAL ────────────────────────────────────────────────────────── */
+type CheckoutStep = "details" | "payment" | "mpesa_waiting" | "sent" | "error";
 
 function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
   theme: Theme;
@@ -335,6 +342,7 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
   const [visible, setVisible] = useState(false);
   const [step, setStep] = useState<CheckoutStep>("details");
   const [sending, setSending] = useState(false);
+  const [mpesaError, setMpesaError] = useState("");
 
   // Form fields
   const [name,  setName]  = useState("");
@@ -342,7 +350,13 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
   const [phone, setPhone] = useState("");
   const [errors, setErrors] = useState<{ name?: string; email?: string; phone?: string }>({});
 
+  // For polling
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => { const t = setTimeout(() => setVisible(true), 20); return () => clearTimeout(t); }, []);
+
+  // Clean up polling on unmount
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   const validate = () => {
     const e: typeof errors = {};
@@ -358,21 +372,101 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
   const shipping = totalPrice >= 5000 ? 0 : 350;
   const grand = totalPrice + shipping;
 
+  // ── Send booking email (for non-M-Pesa methods) ──────────────────────────
+  const sendBookingEmail = async (method: string) => {
+    const res = await fetch("/api/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, phone, method, items, totalPrice: grand, shipping }),
+    });
+    if (!res.ok) throw new Error("Email failed");
+  };
+
+  // ── Poll query endpoint ───────────────────────────────────────────────────
+  const pollStatus = (checkoutRequestId: string) => {
+    let attempts = 0;
+    const MAX = 20; // ~60 seconds
+
+    pollRef.current = setInterval(async () => {
+      attempts++;
+      try {
+        const res  = await fetch("/api/mpesa/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ checkoutRequestId }),
+        });
+        const data = await res.json();
+
+        if (data.pending) return; // still processing — keep polling
+
+        clearInterval(pollRef.current!);
+
+        if (data.ok) {
+          // Payment confirmed → send booking email then show success
+          try { await sendBookingEmail("mpesa"); } catch {}
+          setStep("sent");
+          setTimeout(() => { onSuccess(); onClose(); }, 3200);
+        } else {
+          // Cancelled / wrong PIN / timeout
+          const code = String(data.resultCode ?? "");
+          const msg =
+            code === "1032" ? "Payment cancelled. Please try again." :
+            code === "1037" ? "Request timed out. Please try again." :
+            code === "2001" ? "Wrong PIN entered too many times." :
+            data.resultDesc ?? "Payment failed. Please try again.";
+          setMpesaError(msg);
+          setStep("error");
+        }
+      } catch {
+        // Network glitch — keep polling until max attempts
+        if (attempts >= MAX) {
+          clearInterval(pollRef.current!);
+          setMpesaError("Could not confirm payment. Check your M-Pesa messages.");
+          setStep("error");
+        }
+      }
+
+      if (attempts >= MAX) {
+        clearInterval(pollRef.current!);
+        setMpesaError("Payment confirmation timed out. Check your M-Pesa messages.");
+        setStep("error");
+      }
+    }, 3000);
+  };
+
+  // ── Main submit handler ───────────────────────────────────────────────────
   const handleSubmit = async (method: string) => {
     setSending(true);
+    setMpesaError("");
+
     try {
-      const res = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name, email, phone, method,
-          items, totalPrice: grand, shipping,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed");
-      setStep("sent");
-      setTimeout(() => { onSuccess(); onClose(); }, 3200);
-    } catch {
+      if (method === "mpesa") {
+        // 1. Initiate STK push
+        const res = await fetch("/api/mpesa/stkpush", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone,
+            amount: grand,
+            orderRef: createOrderRef(),
+          }),
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error ?? "STK push failed");
+
+        // 2. Show waiting screen and start polling
+        setStep("mpesa_waiting");
+        pollStatus(data.checkoutRequestId);
+
+      } else {
+        // PayPal / Card — just send booking email (payment handled manually)
+        await sendBookingEmail(method);
+        setStep("sent");
+        setTimeout(() => { onSuccess(); onClose(); }, 3200);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Something went wrong";
+      setMpesaError(msg);
       setStep("error");
     } finally {
       setSending(false);
@@ -388,7 +482,7 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
       background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)",
       opacity: visible ? 1 : 0, transition: "opacity 0.3s ease",
       padding: "1rem",
-    }} onClick={step === "sent" ? undefined : onClose}>
+    }} onClick={step === "sent" || step === "mpesa_waiting" ? undefined : onClose}>
       <div style={{
         background: panelBg, borderRadius: "2rem",
         padding: "clamp(1.75rem,4vw,3rem)",
@@ -402,14 +496,13 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
         {/* ── STEP: DETAILS ── */}
         {step === "details" && (
           <>
-            {/* Header */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "2rem" }}>
               <div>
                 <p style={{ fontFamily: FF, fontWeight: 900, fontSize: "clamp(1.3rem,3vw,1.9rem)", color: theme.text, textTransform: "uppercase", letterSpacing: "-0.03em", lineHeight: 1 }}>
                   Your Details
                 </p>
                 <p style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: "0.78rem", color: theme.text, opacity: 0.5, marginTop: "0.35rem" }}>
-                  Step 1 of 2 — We'll send your booking confirmation here
+                    Step 1 of 2 — We&apos;ll send your booking confirmation here
                 </p>
               </div>
               <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: theme.text, opacity: 0.4, padding: "0.25rem", flexShrink: 0 }}>
@@ -440,7 +533,6 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
               </div>
             </div>
 
-            {/* Fields */}
             <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem", marginBottom: "1.75rem" }}>
               <Field label="Full Name" value={name} onChange={setName} placeholder="e.g. Musi Wanjiku" theme={theme} error={errors.name} />
               <Field label="Email Address" type="email" value={email} onChange={setEmail} placeholder="you@example.com" theme={theme} error={errors.email} />
@@ -496,12 +588,13 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
               ))}
             </div>
 
-            {/* Payment methods */}
+            {/* Payment method buttons */}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem", marginBottom: "1.5rem" }}>
               {[
-                { id: "mpesa",  label: "M-Pesa",             desc: "Pay via Safaricom M-Pesa",  color: "#00a650", icon: "M" },
-                { id: "paypal", label: "PayPal",             desc: "Pay with PayPal",            color: "#003087", icon: "P" },
-                { id: "card",   label: "Credit / Debit Card",desc: "Visa, Mastercard, etc.",    color: "#1a1a2e", icon: "C" },
+                { id: "paylater", label: "Pay Later", desc: "We'll call you to arrange payment", color: "#7c3aed", icon: "✆" },
+                { id: "mpesa",  label: "M-Pesa",              desc: "STK push to your Safaricom number", color: "#00a650", icon: "M" },
+                { id: "paypal", label: "PayPal",              desc: "Pay with PayPal",                    color: "#003087", icon: "P" },
+                { id: "card",   label: "Credit / Debit Card", desc: "Visa, Mastercard, etc.",             color: "#1a1a2e", icon: "C" },
               ].map(({ id, label, desc, color, icon }) => (
                 <button key={id} disabled={sending} onClick={() => handleSubmit(id)} style={{
                   display: "flex", alignItems: "center", gap: "1rem",
@@ -534,20 +627,48 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
 
             {sending && (
               <p style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: "0.8rem", color: "#16a34a", textAlign: "center", opacity: 0.85 }}>
-                Sending your booking…
+                Initiating payment…
               </p>
             )}
-
-            <p style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: "0.65rem", color: theme.text, opacity: 0.35, textAlign: "center", lineHeight: 1.6 }}>
-              Selecting a method sends a booking request. Actual payment APIs coming soon.
-            </p>
           </>
+        )}
+
+        {/* ── STEP: MPESA WAITING ── */}
+        {step === "mpesa_waiting" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1.5rem", padding: "1.5rem 0", textAlign: "center" }}>
+            {/* Animated spinner */}
+            <div style={{
+              width: 72, height: 72, borderRadius: "50%",
+              border: "3px solid #00a65022",
+              borderTop: "3px solid #00a650",
+              animation: "mpesa-spin 1s linear infinite",
+            }} />
+            <style>{`@keyframes mpesa-spin { to { transform: rotate(360deg); } }`}</style>
+
+            <div>
+              <p style={{ fontFamily: FF, fontWeight: 900, fontSize: "clamp(1.2rem,3vw,1.7rem)", color: theme.text, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1, marginBottom: "0.6rem" }}>
+                Check your phone
+              </p>
+              <p style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: "0.85rem", color: theme.text, opacity: 0.6, lineHeight: 1.65, maxWidth: "26ch", margin: "0 auto" }}>
+                An M-Pesa prompt has been sent to <strong style={{ opacity: 1, color: theme.text }}>+254 {phone}</strong>.<br/>
+                Enter your PIN to complete payment of <strong style={{ color: "#00a650" }}>Ksh {grand.toLocaleString()}</strong>.
+              </p>
+            </div>
+
+            <div style={{
+              background: "#00a65010", border: "1px solid #00a65033",
+              borderRadius: "1rem", padding: "0.85rem 1.25rem",
+              fontFamily: "Helvetica, Arial, sans-serif", fontSize: "0.75rem",
+              color: theme.text, opacity: 0.7, lineHeight: 1.6,
+            }}>
+              Till Number: <strong>955371</strong> · Musi&apos;s Collection
+            </div>
+          </div>
         )}
 
         {/* ── STEP: SENT ── */}
         {step === "sent" && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1.25rem", padding: "1rem 0", textAlign: "center" }}>
-            {/* Animated checkmark */}
             <div style={{
               width: 72, height: 72, borderRadius: "50%",
               background: "rgba(22,163,74,0.12)", border: "2px solid #16a34a44",
@@ -559,10 +680,10 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
             </div>
             <div>
               <p style={{ fontFamily: FF, fontWeight: 900, fontSize: "clamp(1.4rem,3vw,2rem)", color: theme.text, textTransform: "uppercase", letterSpacing: "-0.03em", lineHeight: 1, marginBottom: "0.6rem" }}>
-                Booking Sent!
+                Payment Confirmed!
               </p>
               <p style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: "0.85rem", color: theme.text, opacity: 0.6, lineHeight: 1.6, maxWidth: "28ch" }}>
-                We've received your order and sent a confirmation to <strong style={{ opacity: 1, color: theme.text }}>{email}</strong>. We'll be in touch shortly.
+                We&apos;ve received your payment and sent a confirmation to <strong style={{ opacity: 1, color: theme.text }}>{email}</strong>. We&apos;ll be in touch shortly.
               </p>
             </div>
           </div>
@@ -582,13 +703,13 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
             </div>
             <div>
               <p style={{ fontFamily: FF, fontWeight: 900, fontSize: "clamp(1.2rem,3vw,1.6rem)", color: theme.text, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1, marginBottom: "0.6rem" }}>
-                Something went wrong
+                Payment Failed
               </p>
               <p style={{ fontFamily: "Helvetica, Arial, sans-serif", fontSize: "0.82rem", color: theme.text, opacity: 0.6, lineHeight: 1.6 }}>
-                Your booking couldn't be sent. Please try again or contact us on WhatsApp.
+                {mpesaError || "Your payment couldn't be completed. Please try again or contact us on WhatsApp."}
               </p>
             </div>
-            <button onClick={() => setStep("payment")} style={{
+            <button onClick={() => { setStep("payment"); setMpesaError(""); }} style={{
               padding: "0.85rem 2rem", background: "#16a34a", color: "#fff",
               border: "none", borderRadius: "999px", cursor: "pointer",
               fontFamily: FF, fontWeight: 900, fontSize: "0.9rem",
@@ -596,6 +717,7 @@ function CheckoutModal({ theme, items, totalPrice, onClose, onSuccess }: {
             }}>Try Again</button>
           </div>
         )}
+
       </div>
     </div>
   );

@@ -193,43 +193,61 @@ function customerHtml(p: CheckoutPayload): string {
 
 export async function POST(req: NextRequest) {
   const payload: CheckoutPayload = await req.json();
-  const { name, email, phone, method, items, totalPrice, shipping } = payload;
+  const { name, email, phone, method, items, totalPrice } = payload;
 
   // Basic server-side validation
   if (!name || !email || !phone || !method || !items?.length) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
+  const host = process.env.EMAIL_HOST ?? "smtp.gmail.com";
+  const port = Number(process.env.EMAIL_PORT ?? 587);
+  const secure = process.env.EMAIL_SECURE === "true"; // false for port 587 (STARTTLS), true for 465
+  const user = process.env.EMAIL_USER;
+  const pass = process.env.EMAIL_PASS;
+  const recipient = process.env.EMAIL_TO ?? process.env.EMAIL_USER;
+  const smtpConfigured = Boolean(user && pass);
+
+  if (!smtpConfigured) {
+    // This fires when .env.local is missing or incorrectly named — check your file is called
+    // exactly ".env.local" (dot prefix, not underscore) in your project root.
+    console.error("❌ Email disabled: EMAIL_USER or EMAIL_PASS missing from environment.");
+    console.error("   Make sure your file is named  .env.local  (not _env.local) in the project root.");
+    return NextResponse.json({ ok: true, warning: "Email service not configured" });
+  }
+
   const transporter = nodemailer.createTransport({
-    host:   process.env.EMAIL_HOST   ?? "smtp.gmail.com",
-    port:   Number(process.env.EMAIL_PORT ?? 465),
-    secure: process.env.EMAIL_SECURE === "true",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
+    host,
+    port,
+    secure, // false = STARTTLS on port 587 (recommended); true = TLS on port 465
+    auth: { user, pass },
+    // Helps on localhost where TLS certificates may not be trusted:
+    tls: { rejectUnauthorized: false },
   });
 
   const subject = `New Booking — ${name} — Ksh ${totalPrice.toLocaleString()}`;
 
-  // Send both emails in parallel
-  await Promise.all([
-    // Notification to store owner
-    transporter.sendMail({
-      from:    `"Musi's Collection" <${process.env.EMAIL_USER}>`,
-      to:      process.env.EMAIL_TO ?? process.env.EMAIL_USER,
-      replyTo: email,
-      subject,
-      html:    ownerHtml(payload),
-    }),
-    // Confirmation receipt to customer
-    transporter.sendMail({
-      from:    `"Musi's Collection" <${process.env.EMAIL_USER}>`,
-      to:      email,
-      subject: `Your booking is confirmed — Musi's Collection`,
-      html:    customerHtml(payload),
-    }),
-  ]);
+  try {
+    await Promise.all([
+      transporter.sendMail({
+        from:    `"Musi's Collection" <${user}>`,
+        to:      recipient,
+        replyTo: email,
+        subject,
+        html:    ownerHtml(payload),
+      }),
+      transporter.sendMail({
+        from:    `"Musi's Collection" <${user}>`,
+        to:      email,
+        subject: `Your booking is confirmed — Musi's Collection`,
+        html:    customerHtml(payload),
+      }),
+    ]);
+  } catch (err) {
+    // Full error printed to your Next.js terminal — check there if emails still don't arrive
+    console.error("❌ Email sending failed:", err);
+    return NextResponse.json({ ok: true, warning: "Email sending failed" });
+  }
 
   return NextResponse.json({ ok: true });
 }
